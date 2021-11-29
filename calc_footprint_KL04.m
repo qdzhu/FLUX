@@ -1,4 +1,4 @@
-function [PHI, PHIalong, PHIcross, Xcen, Ycen]=calc_footprint_KL04(angle, Csize, sigV, sigW, ustar, zmeas, z0, h, Psi)
+function [PHI, PHIalong, PHIcross, Xcen, Ycen, Xrot, Yrot]=calc_footprint_KL04(angle, Csize, sigV, sigW, ustar, zmeas, z0, h, Psi)
 
 %Adapted from footprint.r in eddy4R package.
 %Flux footprint after Kljun et a. (2004), Metzger et al. (2012).
@@ -188,7 +188,18 @@ function [PHI, PHIalong, PHIcross, Xcen, Ycen]=calc_footprint_KL04(angle, Csize,
     Ycen = [fliplr(-Ycen), Ycen(2:end)];
 
     % start the rotation of the footprint based on the wind direction (angle)
-    % to do list, Qindan Zhu, 11/10/2021
+    theta = 90-angle;
+    R = [cosd(theta), -sind(theta); sind(theta), cosd(theta)];
+    
+    [meshy, meshx] = meshgrid(Ycen, Xcen);
+    
+    Xrot = nan(size(meshx));
+    Yrot = nan(size(meshy));
+    for corner=1:numel(meshx)
+        out = R * [meshx(corner); meshy(corner)];
+        Xrot(corner) = out(1) ;
+        Yrot(corner) = out(2) ;
+    end
     
     % build in functions
     %crosswind integrald flux footprint, Eq. (7)
