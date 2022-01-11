@@ -102,9 +102,10 @@ classdef misc_flux_calculation
             clear all;
         end
         
-        function make_flux_calculation(dayofmonth)
+        function make_flux_calculation_final(dayofmonth)
+            % READ DATA INPUT
             close all
-            f_filepath = misc_flux_calculation.campaign_filepath;
+            f_filepath = misc_flux_calculation.la_filepath;
             h_filepath = dir(f_filepath);
             for i =1:numel(h_filepath)
                 if contains(h_filepath(i).name, sprintf('June%d',dayofmonth))
@@ -113,201 +114,278 @@ classdef misc_flux_calculation
                 end
             end
             data = load(fullfile(filepath, 'merge_obs.mat'));
-            lon = data.savedata.lon;
-            lat = data.savedata.lat;
-            v_wind = data.savedata.v_wind;
-            temp = data.savedata.temp;
-            pot_temp = data.savedata.pot_temp;
-            pressure = data.savedata.pressure;
-            windspeed = data.savedata.windspeed;
-            wind_dir = data.savedata.wind_dir;
-            alt = data.savedata.alt;
-            airspeed = data.savedata.airspeed;
-            roll = data.savedata.roll;
-            pitch = data.savedata.pitch;
-            NOmgm3 = data.savedata.NOmgm3;
-            NO2mgm3 = data.savedata.NO2mgm3;
-            LIF_time = data.savedata.LIF_time;
             
-            % add time filtering
-            time_window = misc_flux_calculation.make_time_window(dayofmonth);
+            % Addtional steps to make data ready to use
+            data_ready = preprocessing_obs(data);
             
-            % Remove spikes in roll and filter data for them
-
-            %This is weird, but what I decide to do is say that whenever the NOx instrument is
-            %running a calibration or zero (ie. NO and NO2 are NaN) say that the
-            %airplane is doing a high roll/turn, which will get filtered out next step
-            roll(isnan(NOmgm3)) = 50;
-            roll(isnan(NO2mgm3)) = 50;
-
+            % Remove spikes in roll
             %Set the highest degree of roll allowable and use nanwindow to filter out data
             %using 8 from previous Goldstein flux flights
             rollmax = 8; 
             nanwindow = 10;
-            roll_spikes = find(abs(roll) >= rollmax);
-            roll_spikes = roll_spikes+10;
+            roll_spikes = find(abs(data_ready.roll) >= rollmax);
             for i=-nanwindow:nanwindow
-                if (roll_spikes)<=length(NO2mgm3)
-                    NO2mgm3(roll_spikes+i) = NaN;
-                    NOmgm3(roll_spikes+i) = NaN;
-                    pitch(roll_spikes+i) = NaN;
-                    v_wind(roll_spikes+i) = NaN;
-                    temp(roll_spikes+i) = NaN;
-                    airspeed(roll_spikes+i) = NaN;
-                    pot_temp(roll_spikes+i) = NaN;
-                    windspeed(roll_spikes+i) = NaN;
-                    wind_dir(roll_spikes+i) = NaN;
-                    alt(roll_spikes+i) = NaN;
-                    pressure(roll_spikes+i) = NaN;
-                    lat(roll_spikes+i) = NaN;
-                    lon(roll_spikes+i) = NaN;
+                if (roll_spikes+i)<=length(data_ready.NO2mgm3) & (roll_spikes+i)>0
+                    data_ready.NO2mgm3(roll_spikes+i) = NaN;
+                    data_ready.NOmgm3(roll_spikes+i) = NaN;
                 end
             end 
-            roll_spikes = roll_spikes-10;
-
+            
+            % add time filtering
+            time_window = misc_flux_calculation.make_time_window(dayofmonth);
+            
+            % find all break points, which in between are possible segments
+            roll_spikes = find(isnan(data_ready.NO2mgm3) | isnan(data_ready.NOmgm3));
+            
+            % Select flight segment
             %Select flight segments between all roll spikes and zeros/calibrations
             n_spec = 1;
             segments = struct();
             
             for j = 1:length(roll_spikes)-1
-            time_beg = LIF_time(roll_spikes(j));
-            time_end = LIF_time(roll_spikes(j+1));
-            
-            %Calculate length and time of segment
-            segmentlengthkm = ((time_end-time_beg)*mean(airspeed(roll_spikes(j):roll_spikes(j+1)),'omitnan'))/1000;
-            
-            % determine if it is with in the time window
-            in_time_window = misc_flux_calculation.is_in_time_window(time_beg - LIF_time(1), time_end - LIF_time(1), time_window);
+                
+                time_beg = data_ready.LIF_time(roll_spikes(j));
+                time_end = data_ready.LIF_time(roll_spikes(j+1));
 
-            %Need segment to be greater than 10km (or maybe even 15km) for good wavelet analysis otherwise ignore 
-            if segmentlengthkm > 10 && in_time_window
-                
-                %Select segments of data    
-                NO_seg=NOmgm3(roll_spikes(j)+1:roll_spikes(j+1)-1);  
-                n_obs = numel(NO_seg);
-                NO2_seg=NO2mgm3(roll_spikes(j)+1:roll_spikes(j+1)-1);
-                time_seg=LIF_time(roll_spikes(j)+1:roll_spikes(j+1)-1);
-                temp_seg=temp(roll_spikes(j)+1:roll_spikes(j+1)-1);
-                vw = v_wind(roll_spikes(j)+1:roll_spikes(j+1)-1);
-                lat_seg = lat(roll_spikes(j)+1:roll_spikes(j+1)-1);
-                lon_seg = lon(roll_spikes(j)+1:roll_spikes(j+1)-1);
-                pitch_seg = pitch(roll_spikes(j)+1:roll_spikes(j+1)-1);
-                roll_seg = roll(roll_spikes(j)+1:roll_spikes(j+1)-1);
-                airspeed_seg = airspeed(roll_spikes(j)+1:roll_spikes(j+1)-1);
-                pot_temp_seg = pot_temp(roll_spikes(j)+1:roll_spikes(j+1)-1);
-                windspeed_seg = windspeed(roll_spikes(j)+1:roll_spikes(j+1)-1);
-                wind_dir_seg = wind_dir(roll_spikes(j)+1:roll_spikes(j+1)-1);
-                alt_seg = alt(roll_spikes(j)+1:roll_spikes(j+1)-1);
-                pressure_seg = pressure(roll_spikes(j)+1:roll_spikes(j+1)-1);
-                enhance = (time_seg(2:n_obs) - time_seg(1:n_obs-1)).* airspeed_seg(1:n_obs-1);
-                length_seg = cat(1,0,cumsum(enhance));
-%                 
+                %Calculate length and time of segment
+                segmentlengthkm = ((time_end-time_beg)*mean(data_ready.airspeed(roll_spikes(j):roll_spikes(j+1)),'omitnan'))/1000;
+
+                % determine if it is with in the time window
+                in_time_window = misc_flux_calculation.is_in_time_window(time_beg - data_ready.LIF_time(1), time_end - data_ready.LIF_time(1), time_window);
+
+                %Need segment to be greater than 10km (or maybe even 15km) for good wavelet analysis otherwise ignore 
+                if segmentlengthkm > 10 && in_time_window
+                    fprintf('segmentlengh:%f \n ',segmentlengthkm);
+                    %Select segments of data
+                    seg_indx = roll_spikes(j)+1:roll_spikes(j+1)-1;
+                    seg = select_seg(seg_indx, data_ready);
+                    
+                    lag_corr_opt = 'const_lag';
+                    switch lag_corr_opt
+                        case 'seg_lag'
+                            seg_corr = corr_lag_seg(seg);
+                        case 'const_lag'
+                            seg_corr = corr_lag_seg_const(seg);
+                    end
+                    
+                    for i=1:size(seg_corr.waves, 2)
+                        sst69 = seg_corr.waves(:,i); 
+                        sst71 = seg_corr.vw;  
+                        variance1 = std(sst69)^2;
+                        sst69 = (sst69 - mean(sst69))/sqrt(variance1) ;
+                        variance2 = std(sst71)^2;
+                        sst71 = (sst71 - mean(sst71))/sqrt(variance2) ;
+                        n = length(sst69);
+                        dt=0.2; %Sampling interval NOx
+                        pad = 1;      % pad the time series with zeroes (recommended)
+                        s0 = 0.4;    % 2 x sampling time
+                        dj = 0.25; %octaves
+                        %j1 = round(log2(round(size(sst69,1))/32))/dj;    % e.g. use log2 of half the sample size with dj sub-octaves each 64 = scaling factor to choose the right wavelet scales
+                        j1 = round(log2(round(size(sst69,1))*dt/s0))/dj; 
+                        lag1 = 0.72;  % lag-1 autocorrelation for red noise background
+                        mother = 'Morlet';
+
+                        % Wavelet transform:
+                        [wave69,period69,scale69,coi69] = WAVELET(sst69,dt,pad,dj,s0,j1,mother);
+                        [wave71,period71,scale71,coi71] = WAVELET(sst71,dt,pad,dj,s0,j1,mother);
+                        %power = (abs(wave)).^2 ;        % compute wavelet power spectrum
+                        spec(i).coivoc=coi69;
+                        spec(i).scalevoc=scale69;
+
+                        Cdelta = 0.776;   % this is for the MORLET wavelet
+
+                        %crossspectrum
+                        wc6971=real(wave69).*real(wave71)+imag(wave69).*imag(wave71);
+                        spec(i).wavew=(variance1*variance2)*sum(wc6971,2)/n;
+                        spec(i).fqwave=1./period69;
+                        spec(i).crosspec = wc6971;
+
+                        scale_avg = (scale69')*(ones(1,n));  % expand scale --> (J+1)x(N) array
+                        scale_avg = wc6971./ scale_avg;   % [Eqn(24)]
+                        scale_avg = sqrt(variance1*variance2)*dj*dt/Cdelta*sum(scale_avg);   % [Eqn(24)]
+                        spec(i).flux = scale_avg;
+
+                    end
+                    seg_corr.spec = spec;
+                    % copy seg_sorr to segments(n_spec)
+                    fds = fieldnames(seg_corr);
+                    for i_fd = 1:numel(fds)
+                        segments(n_spec).(fds{i_fd}) = seg_corr.(fds{i_fd});
+                    end
+                    n_spec = n_spec + 1;
+                end
+
+            end
+
+            fprintf('%d segments are found.\n', n_spec - 1);
+            switch lag_corr_opt
+                case 'seg_lag'
+                    save(fullfile(filepath, 'wavelet_decomp_seg_lag_final'), 'segments');
+                case 'const_lag'
+                    save(fullfile(filepath, 'wavelet_decomp_const_lag_final'), 'segments');
+            end
+            
+               
+            function merge = preprocessing_obs(data)
+                % 1. trim data if LIF_time > 86400, which corresponds the measurements from prevous day
+                LIF_time = data.savedata.LIF_time;
+                indx = LIF_time < 86400;
+                merge.LIF_time = LIF_time(indx);
+                merge.lon = data.savedata.lon(indx);
+                merge.lat = data.savedata.lat(indx);
+                merge.v_wind = data.savedata.v_wind(indx);
+                merge.temp = data.savedata.temp(indx);
+                merge.pot_temp = data.savedata.pot_temp(indx);
+                merge.pressure = data.savedata.pressure(indx);
+                merge.windspeed = data.savedata.windspeed(indx);
+                merge.wind_dir = data.savedata.wind_dir(indx);
+                % Note: Altitude above sea level - surface altitude =
+                % Altitude above ground level.
+                merge.alt = data.savedata.alt(indx)- data.savedata.galt(indx);
+                merge.airspeed = data.savedata.airspeed(indx);
+                merge.roll = data.savedata.roll(indx);
+                merge.pitch = data.savedata.pitch(indx);
+                merge.NOmgm3 = data.savedata.NOmgm3(indx);
+                merge.NO2mgm3 = data.savedata.NO2mgm3(indx);
+            end
+            
+            function seg = select_seg(seg_indx, data_ready)
+                seg.NO = data_ready.NOmgm3(seg_indx);  
+                seg.NO2 = data_ready.NO2mgm3(seg_indx);
+                seg.time = data_ready.LIF_time(seg_indx);
+                seg.temp = data_ready.temp(seg_indx);
+                seg.vw = data_ready.v_wind(seg_indx);
+                seg.lat = data_ready.lat(seg_indx);
+                seg.lon = data_ready.lon(seg_indx);
+                seg.pitch = data_ready.pitch(seg_indx);
+                seg.roll = data_ready.roll(seg_indx);
+                seg.airspeed = data_ready.airspeed(seg_indx);
+                seg.pot_temp = data_ready.pot_temp(seg_indx);
+                seg.windspeed = data_ready.windspeed(seg_indx);
+                seg.wind_dir = data_ready.wind_dir(seg_indx);
+                seg.alt = data_ready.alt(seg_indx);
+                seg.pressure = data_ready.pressure(seg_indx);
                 %%median despiking of NO, NO2 and vertical wind following technique
-                %%proposed in London flux paper
-                NO2_seg = misc_flux_calculation.despike_lag(NO2_seg);
-                NOx_seg = misc_flux_calculation.despike_lag(NO_seg + NO2_seg);
-                vw = misc_flux_calculation.despike_lag(vw);
-                
-                temp_waves(:,1) = NOx_seg;
-                temp_waves(:,2) = NO2_seg;
-                n_obs = numel(NO2_seg);
-                
-                for i = 1:2
-                    [flux, lagc] = xcov(temp_waves(:,i),vw,2000,'normalized');
+                    %%proposed in London flux paper
+                seg.NO2 = misc_flux_calculation.despike_lag(seg.NO2);
+                seg.NOx = misc_flux_calculation.despike_lag(seg.NO + seg.NO2);
+                seg.vw = misc_flux_calculation.despike_lag(seg.vw);
+            end
+            
+            function seg_corr = corr_lag_seg(seg)
+                this_waves = nan(size(seg.NOx,1),3);
+                this_waves(:,1) = seg.NOx;
+                this_waves(:,2) = seg.NO;
+                this_waves(:,3) = seg.pot_temp;
+
+                n_obs = numel(seg.NOx);
+
+                for i = 1:3
+                    [flux, lagc] = xcov(this_waves(:,i),seg.vw,2000,'normalized');
                     center = ceil(length(flux)./2); %define center to find local maximum of covariance
-                    peaks = find(max(flux) == flux) - center +1;
+                    peaks = find(max((flux)) == (flux)) - center +1;
                     fprintf('this peaks diff: %d \n', peaks);
                     ajpeaks(i) = peaks;
                     if peaks >0
-                        
                         waves_adjust_index = peaks:n_obs;
                         vw_adjust_index = 1:n_obs - peaks+1;
-                        ajwaves{i} = temp_waves(waves_adjust_index,i);
-                        ajtime{i} = time_seg(vw_adjust_index);
+                        ajwaves{i} = this_waves(waves_adjust_index,i);
+                        ajtime{i} = seg.time(vw_adjust_index);
 
                     else
                         waves_adjust_index = 1:n_obs+peaks;
                         vw_adjust_index = -peaks+1:n_obs;
-                        ajwaves{i} = temp_waves(waves_adjust_index,i);
-                        ajtime{i} = time_seg(vw_adjust_index);
+                        ajwaves{i} = this_waves(waves_adjust_index,i);
+                        ajtime{i} = seg.time(vw_adjust_index);
                     end
                 end
-                
-                if all(abs(ajpeaks)<40)
+
+                if all(abs(ajpeaks(1:2))<40)
                     fprintf('Meet the criteria\n');
                     [ctime, ctime_indx1, ctime_indx2] = intersect(ajtime{1}, ajtime{2});
 
                     waves(:,1) = ajwaves{1}(ctime_indx1);
                     waves(:,2) = ajwaves{2}(ctime_indx2);
 
-                    [~, ~, ctime_indx2] = intersect(ctime, time_seg);
-                    vw = vw(ctime_indx2);
-                    segments(n_spec).waves = waves;
-                    segments(n_spec).vw = vw;
-                    segments(n_spec).alt = alt_seg(ctime_indx2);
-                    segments(n_spec).lon = lon_seg(ctime_indx2);
-                    segments(n_spec).lat = lat_seg(ctime_indx2);
-                    segments(n_spec).airspeed = airspeed_seg(ctime_indx2);
-                    segments(n_spec).windspeed = windspeed_seg(ctime_indx2);
-                    segments(n_spec).wind_dir = wind_dir_seg(ctime_indx2);
-                    segments(n_spec).temp = temp_seg(ctime_indx2);
-                    segments(n_spec).time = ctime;
-                    segments(n_spec).xkm = length_seg(ctime_indx2)/1e3;
+                    [~, ~, ctime_indx] = intersect(ctime, seg.time);
+                    waves(:,3) = seg.pot_temp(ctime_indx);
                     
-                for i=1:2
-                    sst69 = waves(:,i); 
-                    sst71 = vw;  
-                    variance1 = std(sst69)^2;
-                    sst69 = (sst69 - mean(sst69))/sqrt(variance1) ;
-                    variance2 = std(sst71)^2;
-                    sst71 = (sst71 - mean(sst71))/sqrt(variance2) ;
-                    
-                    %pbl=1; %1.5; %km 
-%                     zi=mean(alt_seg(vw_adjust_index),'omitnan')/1000; %km
-                    n = length(sst69);
-                    dt=0.2; %Sampling interval NOx
-%                     time = [0:length(sst69)-1]*dt + 0 ;  % construct time array
-%                     xlim = [0,max(time)*xkm];  % plotting range
-                    pad = 1;      % pad the time series with zeroes (recommended)
-                    s0 = 0.4;    % 2 x sampling time
-                    dj = 0.25; %octaves
-                    %j1 = round(log2(round(size(sst69,1))/32))/dj;    % e.g. use log2 of half the sample size with dj sub-octaves each 64 = scaling factor to choose the right wavelet scales
-                    j1 = round(log2(round(size(sst69,1))*dt/s0))/dj; 
-                    lag1 = 0.72;  % lag-1 autocorrelation for red noise background
-                    mother = 'Morlet';
-
-                    % Wavelet transform:
-                    [wave69,period69,scale69,coi69] = WAVELET(sst69,dt,pad,dj,s0,j1,mother);
-                    [wave71,period71,scale71,coi71] = WAVELET(sst71,dt,pad,dj,s0,j1,mother);
-                    %power = (abs(wave)).^2 ;        % compute wavelet power spectrum
-                    spec(i).coivoc=coi69;
-                    spec(i).scalevoc=scale69;
-
-                    Cdelta = 0.776;   % this is for the MORLET wavelet
-
-                    %crossspectrum
-                    wc6971=real(wave69).*real(wave71)+imag(wave69).*imag(wave71);
-                    spec(i).wavew=(variance1*variance2)*sum(wc6971,2)/n;
-                    spec(i).fqwave=1./period69;
-                    spec(i).crosspec = wc6971;
-
-                    scale_avg = (scale69')*(ones(1,n));  % expand scale --> (J+1)x(N) array
-                    scale_avg = wc6971./ scale_avg;   % [Eqn(24)]
-                    scale_avg = sqrt(variance1*variance2)*dj*dt/Cdelta*sum(scale_avg);   % [Eqn(24)]
-                    spec(i).flux = scale_avg;
-
+                    seg_corr.waves = waves;
+                    seg_corr.vw =  seg.vw(ctime_indx);
+                    seg_corr.alt = seg.alt(ctime_indx);
+                    seg_corr.lon = seg.lon(ctime_indx);
+                    seg_corr.lat = seg.lat(ctime_indx);
+                    seg_corr.airspeed = seg.airspeed(ctime_indx);
+                    seg_corr.windspeed = seg.windspeed(ctime_indx);
+                    seg_corr.wind_dir = seg.wind_dir(ctime_indx);
+                    seg_corr.temp = seg.temp(ctime_indx);
+                    seg_corr.time = ctime;
+                    seg_corr.lag_peaks = ajpeaks;
+%                     segments(n_spec).xkm = length_seg(ctime_indx2)/1e3;
+                else
+                    seg_corr.waves = [];
+                    fprintf('Does not meet the criteria\n');
                 end
+            end
+            
+            function seg_corr = corr_lag_seg_const(seg)
+                data = load(fullfile(filepath, 'wavelet_decomp_seg_lag_final'));
+                orig_segments = data.segments;
+                nox_peaks = zeros(numel(orig_segments), 3);
+                n_seg = 1;
+                for i = 1:numel(orig_segments)
+                    if ~isempty(orig_segments(i).lag_peaks)
+                        nox_peaks(n_seg,:) = orig_segments(i).lag_peaks;
+                        n_seg = n_seg + 1;
+                    end
+                end
+                const_peaks= median(nox_peaks(1:n_seg-1,:),1);
                 
-                segments(n_spec).spec = spec;
-                n_spec = n_spec + 1;
+                this_waves = nan(size(seg.NOx,1),3);
+                this_waves(:,1) = seg.NOx;
+                this_waves(:,2) = seg.NO;
+                this_waves(:,3) = seg.pot_temp;
+
+                n_obs = numel(seg.NOx);
+                for i = 1:3
+                    peaks = round(const_peaks(i));
+                    if peaks >0
+                        waves_adjust_index = peaks:n_obs;
+                        vw_adjust_index = 1:n_obs - peaks+1;
+                        ajwaves{i} = this_waves(waves_adjust_index,i);
+                        ajtime{i} = seg.time(vw_adjust_index);
+
+                    else
+                        waves_adjust_index = 1:n_obs+peaks;
+                        vw_adjust_index = -peaks+1:n_obs;
+                        ajwaves{i} = this_waves(waves_adjust_index,i);
+                        ajtime{i} = seg.time(vw_adjust_index);
+                    end
                 end
+    
+                [ctime, ctime_indx1, ctime_indx2] = intersect(ajtime{1}, ajtime{2});
+
+                waves(:,1) = ajwaves{1}(ctime_indx1);
+                waves(:,2) = ajwaves{2}(ctime_indx2);
+
+                [~, ~, ctime_indx] = intersect(ctime, seg.time);
+                waves(:,3) = seg.pot_temp(ctime_indx);
+
+                seg_corr.waves = waves;
+                seg_corr.vw =  seg.vw(ctime_indx);
+                seg_corr.alt = seg.alt(ctime_indx);
+                seg_corr.lon = seg.lon(ctime_indx);
+                seg_corr.lat = seg.lat(ctime_indx);
+                seg_corr.airspeed = seg.airspeed(ctime_indx);
+                seg_corr.windspeed = seg.windspeed(ctime_indx);
+                seg_corr.wind_dir = seg.wind_dir(ctime_indx);
+                seg_corr.temp = seg.temp(ctime_indx);
+                seg_corr.time = ctime;
+                seg_corr.lag_peaks = const_peaks;
+    %                     segments(n_spec).xkm = length_seg(ctime_indx2)/1e3;
+                
             end
-            temp_waves = [];
-            waves = [];
-            end
-            fprintf('%d segments are found.\n', n_spec - 1);
-            save(fullfile(filepath, 'wavelet_decomp'), 'segments');
-        end
+        end   
         
         function [var] = despike_lag(var)
 %             figure;
