@@ -28,7 +28,7 @@ classdef misc_flux_calculation
             if ismember('UTCTime_secs_',Table.Properties.VariableNames) == 1
                 plane_time = Table.UTCTime_secs_;
             else
-                plane_time = Table.UTCTime_HH_hhhhh_;
+                plane_time = Table.UTCTime_swcs_;
             end
 
             %Assign temporary plane measurements
@@ -36,7 +36,7 @@ classdef misc_flux_calculation
             B = Table.Long;
             C = Table.Vert_Wind_m_s_;
             D = Table.Tamb_C_;
-            E = Table.Pitch_deg_;
+            E = Table.Theta_K_;
             F = Table.Ps_mb_;
             G = Table.WindSpeed_m_s_;
             H = Table.WindDir_Deg_;
@@ -44,6 +44,7 @@ classdef misc_flux_calculation
             J = Table.TAS_m_s_;
             K = Table.Roll_deg_;
             L = Table.Pitch_deg_;
+            M = Table.RadAlt__m_;
 
             %Filter out NaNs
             apple = isnan(plane_time);
@@ -60,6 +61,7 @@ classdef misc_flux_calculation
             J(apple) = [];
             K(apple) = [];
             L(apple) = [];
+            M(apple) = [];
 
             %This code is to deal with flights that went over midnight UTC that reset
             %the time of day
@@ -75,29 +77,29 @@ classdef misc_flux_calculation
                 end
             end
 
-            savedata.lat = misc_flux_calculation.interp_to_lif_time(plane_time,A,LIF_time);
-            savedata.lon = misc_flux_calculation.interp_to_lif_time(plane_time,-B,LIF_time);
-            savedata.v_wind = misc_flux_calculation.interp_to_lif_time(plane_time,C,LIF_time);
-            savedata.temp = misc_flux_calculation.interp_to_lif_time(plane_time,D,LIF_time);
-            savedata.pot_temp = misc_flux_calculation.interp_to_lif_time(plane_time,E,LIF_time);
-            savedata.pressure = misc_flux_calculation.interp_to_lif_time(plane_time,F,LIF_time);
-            savedata.windspeed = misc_flux_calculation.interp_to_lif_time(plane_time,G,LIF_time);
-            savedata.wind_dir = misc_flux_calculation.interp_to_lif_time(plane_time,H,LIF_time);
-            savedata.alt = misc_flux_calculation.interp_to_lif_time(plane_time,I,LIF_time);
-            savedata.airspeed = misc_flux_calculation.interp_to_lif_time(plane_time,J,LIF_time);
-            savedata.roll = misc_flux_calculation.interp_to_lif_time(plane_time,K,LIF_time);
-            savedata.pitch = misc_flux_calculation.interp_to_lif_time(plane_time,L,LIF_time);
-            savedata.NOmgm3=(transpose(data.aveNO).*32.*12.187)./(273.15+savedata.temp)./1000; %calculate mg/m3 from ppb assuming 1 atm
-            savedata.NO2mgm3=(transpose(data.aveNO2).*46.*12.187)./(273.15+savedata.temp)./1000; %calculate mg/m3 from ppb assuming 1 atm
+            savedata.lat = misc_footprint_analysis.interp_to_lif_time(plane_time,A,LIF_time);
+            savedata.lon = misc_footprint_analysis.interp_to_lif_time(plane_time,-B,LIF_time);
+            savedata.v_wind = misc_footprint_analysis.interp_to_lif_time(plane_time,C,LIF_time);
+            savedata.temp = misc_footprint_analysis.interp_to_lif_time(plane_time,D,LIF_time);
+            savedata.pot_temp = misc_footprint_analysis.interp_to_lif_time(plane_time,E,LIF_time);
+            savedata.pressure = misc_footprint_analysis.interp_to_lif_time(plane_time,F,LIF_time);
+            savedata.windspeed = misc_footprint_analysis.interp_to_lif_time(plane_time,G,LIF_time);
+            savedata.wind_dir = misc_footprint_analysis.interp_to_lif_time(plane_time,H,LIF_time);
+            savedata.alt = misc_footprint_analysis.interp_to_lif_time(plane_time,I,LIF_time);
+            savedata.airspeed = misc_footprint_analysis.interp_to_lif_time(plane_time,J,LIF_time);
+            savedata.roll = misc_footprint_analysis.interp_to_lif_time(plane_time,K,LIF_time);
+            savedata.pitch = misc_footprint_analysis.interp_to_lif_time(plane_time,L,LIF_time);
+            savedata.radalt = misc_footprint_analysis.interp_to_lif_time(plane_time,M,LIF_time);
+            savedata.galt = savedata.alt - savedata.radalt;
+            
+
+            savedata.NOmgm3=(transpose(data.aveNO).*30.*12.187)./(273.15+savedata.temp)./prctile(savedata.pressure, 50); %calculate mg/m3 from ppb
+            savedata.NO2mgm3=(transpose(data.aveNO2).*46.*12.187)./(273.15+savedata.temp)./prctile(savedata.pressure, 50); %calculate mg/m3 from ppb
+%             savedata.NOzmgm3=(transpose(data.aveNOz).*46.*12.187)./(273.15+savedata.temp)./1000; %calculate mg/m3 from ppb
             savedata.LIF_time = LIF_time;
+           % disp(nanmedian(savedata.pressure));
             no2 = data.aveNO2;
             nox = data.aveNO + data.aveNO2;
-            
-            
-%             misc_flux_calculation.plot_flight_track(savedata.lon, savedata.lat, savedata.alt, no2, nox, savedata.LIF_time)
-%             [savedata.no2_lag_time, lag_indx] = misc_flux_calculation.calc_lag_time(LIF_time, nox, savedata.alt, savedata.temp);
-%             savedata.nox_lag_time = misc_flux_calculation.calc_lag_time(LIF_time, no2, savedata.alt, savedata.temp);
-            
             save(fullfile(filepath, 'merge_obs'), 'savedata');
             clear all;
         end
