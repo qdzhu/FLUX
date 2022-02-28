@@ -78,9 +78,9 @@ function [PHI, PHIalong, PHIcross, Xcen, Ycen, Xrot, Yrot]=calc_footprint_KL04(a
 
     %alongwind integration boundaries with aicraft centered in 0
     if(whrxn < 0) 
-        XRng = [(whrxn:(-1) + 0.5), 1:whrxp - 0.5] * Csize;
+        XRng = [((whrxn:(-1)) + 0.5), (1:whrxp) - 0.5] * Csize;
     else 
-        XRng = [0, 1:whrxp - 0.5]* Csize;
+        XRng = [0, (1:whrxp) - 0.5]* Csize;
     end
     
     %crosswind integration boundaries with aicraft centered in 0
@@ -148,7 +148,11 @@ function [PHI, PHIalong, PHIcross, Xcen, Ycen, Xrot, Yrot]=calc_footprint_KL04(a
     ncol = size(PHIcross, 2);
     nrow = size(PHIcross, 1);
     
-    PHIcross = [fliplr(PHIcross(:,2:ncol)), 2*PHIcross(:,1), PHIcross(:,2:ncol)];
+    %PHIcross = [fliplr(PHIcross(:,2:ncol)), 2*PHIcross(:,1), PHIcross(:,2:ncol)];
+    PHIcross = [fliplr(PHIcross(:,2:ncol)), PHIcross(:,1), PHIcross(:,2:ncol)];
+    for i=1:size(PHIcross,1)
+        PHIcross(i,:) = PHIcross(i,:)/sum(PHIcross(i,:));
+    end
     
     if do_plot
         subplot(2,1,2);
