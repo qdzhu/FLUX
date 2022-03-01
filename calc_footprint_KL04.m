@@ -1,4 +1,4 @@
-function [PHI, PHIalong, PHIcross, Xcen, Ycen, Xrot, Yrot]=calc_footprint_KL04(angle, Csize, sigV, sigW, ustar, zmeas, z0, h, Psi)
+function [PHI, PHIalong, PHIcross, Xcen, Ycen, Xrot, Yrot,xr,yr]=calc_footprint_KL04(angle, Csize, sigV, sigW, ustar, zmeas, z0, h, Psi)
 
 %Adapted from footprint.r in eddy4R package by Qindan Zhu and Eva Pfannerstill, UC Berkeley.
 %Flux footprint after Kljun et a. (2004), Metzger et al. (2012).
@@ -165,20 +165,7 @@ function [PHI, PHIalong, PHIcross, Xcen, Ycen, Xrot, Yrot]=calc_footprint_KL04(a
     end
     PHIcross = real(PHIcross);
     
-    if do_plot
-        subplot(2,1,2);
-        newYcen = [fliplr(-Ycen), Ycen(2:end)];
-        [meshy, meshx] = meshgrid(newYcen, Xcen);
-        pcolor(real(meshx/1e3), real(meshy/1e3), PHIcross);
-        shading flat;
-        ylabel('Cross wind (km)');
-        xlabel('Along wind (km)');
-        title('Cross Wind');
-        colorbar;
 
-        set(gca,'linewidth',2);
-        set(gca, 'fontsize',12);
-    end
     %combination of along- and cross component; along wind from up to down, crosswind from left to right; sums to unity
     PHI = [];
     for x=1:nrow
