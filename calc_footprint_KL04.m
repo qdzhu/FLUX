@@ -1,10 +1,10 @@
 function [PHI, PHIalong, PHIcross, Xcen, Ycen, Xrot, Yrot]=calc_footprint_KL04(angle, Csize, sigV, sigW, ustar, zmeas, z0, h, Psi)
 
-%Adapted from footprint.r in eddy4R package.
+%Adapted from footprint.r in eddy4R package by Qindan Zhu and Eva Pfannerstill, UC Berkeley.
 %Flux footprint after Kljun et a. (2004), Metzger et al. (2012).
 
 %INPUT VARIABLES
-  %angle	%wind direction [B0] to rotate the inertial footprint matrix; used for both models
+  %angle	%wind direction [degrees] to rotate the inertial footprint matrix; used for both models
   %Csize	%cell size [m] of result grid; used for both models
   %hor		%horizontal wind speed [m/s]; used in KM01, and to determine z0 for K04
   %sigV		%crosswind fluctuations [m/s]; used for both models to calculate the crosswind dispersion
@@ -14,6 +14,7 @@ function [PHI, PHIalong, PHIcross, Xcen, Ycen, Xrot, Yrot]=calc_footprint_KL04(a
   %zmeas	%height of measurement - displacement [m]
   %z0       %roughness height (?)
   %h        %PBL Height
+  %Psi		%set to 0
 
   %%%%%%PREPARATION OF INPUT PARAMETERS
   %constant parameters from pages 507 and 516
@@ -63,13 +64,22 @@ function [PHI, PHIalong, PHIcross, Xcen, Ycen, Xrot, Yrot]=calc_footprint_KL04(a
     fmax = FFPcross(whrxp * Csize, ymax, sigV, sigW, ustar, zmeas, z0, h, Psi);
     
     %crosswind footprint extend until contribution falls below 1 % fmax
-      whri = ymax; whro = fmax;	%start from distribution peak
-      while(whro > fmax / 100) 
-        whri = whri + Csize;	%use step width of landuse matrix
-        whro = FFPcross(whrxp * Csize, whri, sigV, sigW, ustar, zmeas, z0, h, Psi);
+     if fmax >= 0
+          while whro > (fmax / 100)
+              whri = whri + Csize;	%use step width of landuse matrix
+              whro = FFPcross(whrxp * Csize, whri, sigV, sigW, ustar, zmeas, z0, h, Psi); 
+          end
+      elseif fmax <0 %EP added this part
+          while whro < (fmax / 100)
+              whri = whri + Csize;	%use step width of landuse matrix
+              whro = FFPcross(whrxp * Csize, whri, sigV, sigW, ustar, zmeas, z0, h, Psi); 
+          end
       end
      whry = ceil(whri / Csize);	%cell length necessay in Y direction 
-    
+    if whry <=2
+        whry = 3; %otherwise too small a disctribution, code will stop
+    end
+     
      
      
      %%%%%%%CELL ALLOCATION AND INTEGRATION
@@ -115,7 +125,7 @@ function [PHI, PHIalong, PHIcross, Xcen, Ycen, Xrot, Yrot]=calc_footprint_KL04(a
 
     %normalisation to unity
       PHIalong = PHIalong / sum(PHIalong);
-      
+      PHIalong = real(PHIalong); %only take real part
     
     %%%%%% #integration of crosswind footprint
     % #integration, output: top -> bottom == upwind -> downwind, left -> right == alongwind axis -> outside
@@ -153,12 +163,13 @@ function [PHI, PHIalong, PHIcross, Xcen, Ycen, Xrot, Yrot]=calc_footprint_KL04(a
     for i=1:size(PHIcross,1)
         PHIcross(i,:) = PHIcross(i,:)/sum(PHIcross(i,:));
     end
+    PHIcross = real(PHIcross);
     
     if do_plot
         subplot(2,1,2);
         newYcen = [fliplr(-Ycen), Ycen(2:end)];
         [meshy, meshx] = meshgrid(newYcen, Xcen);
-        pcolor(meshx/1e3, meshy/1e3, PHIcross);
+        pcolor(real(meshx/1e3), real(meshy/1e3), PHIcross);
         shading flat;
         ylabel('Cross wind (km)');
         xlabel('Along wind (km)');
@@ -172,15 +183,12 @@ function [PHI, PHIalong, PHIcross, Xcen, Ycen, Xrot, Yrot]=calc_footprint_KL04(a
     PHI = [];
     for x=1:nrow
         this_phi =  PHIalong(x) * PHIcross(x,:);
-        PHI = [PHI; this_phi];
+        PHI = real([PHI; this_phi]);
     end
     
     if do_plot
         figure;
-        newYcen = [fliplr(-Ycen), Ycen(2:end)];
-        [meshy, meshx] = meshgrid(newYcen, Xcen);
-        pcolor(meshx/1e3, meshy/1e3, PHI);
-        shading flat;
+        mesh(meshx/1e3, meshy/1e3, PHI);
         ylabel('Cross wind (km)');
         xlabel('Along wind (km)');
         h = colorbar;
@@ -189,7 +197,70 @@ function [PHI, PHIalong, PHIcross, Xcen, Ycen, Xrot, Yrot]=calc_footprint_KL04(a
         set(gca,'linewidth',2);
         set(gca, 'fontsize',12);
     end
+%     contour(meshx/1e3, meshy/1e3, PHI);
+% if do_plot
+%         figure;
+%         newYcen = [fliplr(-Ycen), Ycen(2:end)];
+%         [meshy, meshx] = meshgrid(newYcen, Xcen);
+%         contour(meshx/1e3, meshy/1e3, PHI);
+%         ylabel('Cross wind (km)');
+%         xlabel('Along wind (km)');
+%         h = colorbar;
+%         title('footprint (%)','fontsize',14);
+%         set(h,{'linew'},{2});
+%         set(gca,'linewidth',2);
+%         set(gca, 'fontsize',12);
+% end
+
     Ycen = [fliplr(-Ycen), Ycen(2:end)];
+
+%--------------------------------------------------------------------
+% Derive footprint ellipsoid incorporating R% of the flux
+% starting at peak value, if requested
+%--------------------------------------------------------------------
+r = 0.9;
+   if ~isnan(r)
+       rs = r;
+   else
+       if crop==1
+           rs = 0.8;
+       else
+           rs = NaN;
+       end
+   end
+   %dy = Csize;
+
+   if ~isnan(rs)
+       % Calculate integral of f_2d starting at peak value until R% are reached
+       f_array = reshape(PHI,1,size(PHI,1)*size(PHI,2));
+       f_sort  = sort(f_array,'descend');
+       f_sort  = f_sort(~isnan(f_sort));
+       f_cum   = cumsum(f_sort); %.*Csize.*dy;
+       for i = 1:length(rs)
+           f_diff     = abs(f_cum-rs(i));
+           [~, ind_r] = min(f_diff);
+           fr         = real(f_sort(ind_r));
+           contour_r  = contourc(real(Ycen),real(Xcen),real(PHI),[fr fr]);
+    
+           % Contourc adds info on level and number of vertices - replace with NaN
+           ind_nan = find(contour_r(1,:)==fr);
+           contour_r(:,ind_nan) = NaN;
+           
+           % Decrease number of digits and sort/unique
+           try
+               % matlab release 2014b or newer only
+               contour_r = round(contour_r,1);
+           catch
+               contour_r = round(10.*contour_r)./10;
+           end
+       
+           if ~isnan(r)               
+               % Fill output structure
+               xr  = contour_r(1,:);
+               yr  = contour_r(2,:);
+           end
+       end %for i
+   end
 
     % start the rotation of the footprint based on the wind direction (angle)
     theta = 90-angle;
@@ -204,6 +275,80 @@ function [PHI, PHIalong, PHIcross, Xcen, Ycen, Xrot, Yrot]=calc_footprint_KL04(a
         Xrot(corner) = out(1) ;
         Yrot(corner) = out(2) ;
     end
+    
+      if ~isnan(rs)
+        [meshyr, meshxr] = meshgrid(yr, xr);
+        
+        Xrotr = nan(size(meshxr));
+        Yrotr = nan(size(meshyr));
+        for corner=1:numel(meshxr)
+            out = R * [meshxr(corner); meshyr(corner)];
+            Xrotr(corner) = out(1) ;
+            Yrotr(corner) = out(2) ;
+        end
+    end
+
+%     if do_plot
+%         figure;
+%         contour(Xrot/1e3,Yrot/1e3, PHI);
+%         ylabel('Y (km)');
+%         xlabel('X (km)');
+%         h = colorbar;
+%         title('rotated footprint (%)','fontsize',14);
+%         set(h,{'linew'},{2});
+%         set(gca,'linewidth',2);
+%         set(gca, 'fontsize',12);
+%     end
+%--------------------------------------------------------------------
+% Rotate footprint for plot in 2d
+%--------------------------------------------------------------------
+   if ~isnan(angle)
+       wind_dir_rad = (angle).*pi./180;
+       dist         = sqrt(meshx.^2 + meshy.^2);
+       angl        = atan2(meshy, meshx);
+       x_2d_rot     = dist.*sin(wind_dir_rad - angl);
+       y_2d_rot     = dist.*cos(wind_dir_rad - angl);
+       
+       if ~isnan(r)
+           for i = 1:length(r)
+               dist      = sqrt(xr.^2 + yr.^2);
+               angl     = atan2(xr, yr);
+               % Fill output structure
+               xr = dist.*sin(wind_dir_rad - angl);
+               yr = dist.*cos(wind_dir_rad - angl);
+           end 
+       end
+   end
+
+
+    if do_plot
+    figure;
+    colormap jet;
+    surf( (Xrot-1*Csize)/1e3, (Yrot-1*Csize)/1e3,PHI);shading flat;view(2);
+    hold all;
+    if ~isnan(rs)
+            z = fr.*ones(size(yr)).*100;
+            plot3(xr/1e3,yr/1e3,z,'r');
+    end 
+    xlabel('x [km]'); ylabel('y [km]');
+    %axis([min(Xrot./1e3,'all') max(Xrot./1e3,'all') min(Yrot./1e3,'all') max(Yrot./1e3,'all')]);
+    axis tight
+    axis image
+    set(gca,'TickDir','out');
+    colorbar;
+    end
+% 
+%     if do_plot
+%         figure;
+%         mesh(Yrot/1e3, Xrot/1e3, PHI);
+%         ylabel('Northing (km)');
+%         xlabel('Easting (km)');
+%         h = colorbar;
+%         title('footprint (%)','fontsize',14);
+%         set(h,{'linew'},{2});
+%         set(gca,'linewidth',2);
+%         set(gca, 'fontsize',12);
+%     end
     
     % build in functions
     %crosswind integrald flux footprint, Eq. (7)
