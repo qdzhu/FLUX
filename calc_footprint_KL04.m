@@ -1,7 +1,10 @@
 function [PHI, PHIalong, PHIcross, Xcen, Ycen, Xrot, Yrot,xr,yr]=calc_footprint_KL04(angle, Csize, sigV, sigW, ustar, zmeas, z0, h, Psi)
 
-%Adapted from footprint.r in eddy4R package by Qindan Zhu and Eva Pfannerstill, UC Berkeley.
-%Flux footprint after Kljun et a. (2004), Metzger et al. (2012).
+%License: GNU AFFERO GENERAL PUBLIC LICENSE Version 3, 19 November 2007
+%Flux footprint after Kljun et al. (2004), Metzger et al. (2012).
+%Ported from the eddy4R family of R-packages (https://github.com/NEONScience/eddy4R) eddy4R.turb::def.foot.k04.R function to Matlab by Qindan Zhu and Eva Pfannerstill, UC Berkeley.
+%Reference: Kljun, N., Calanca, P., Rotach, M. W., and Schmid, H. P.: A simple parameterisation for flux footprint predictions, Boundary Layer Meteorol., 112, 503-523, doi:10.1023/B:BOUN.0000030653.71031.96, 2004.
+%Reference: Metzger, S., Junkermann, W., Mauder, M., Beyrich, F., Butterbach-Bahl, K., Schmid, H. P., and Foken, T.: Eddy-covariance flux measurements with a weight-shift microlight aircraft, Atmos. Meas. Tech., 5, 1699-1717, doi:10.5194/amt-5-1699-2012, 2012.
 
 %INPUT VARIABLES
   %angle	%wind direction [degrees] to rotate the inertial footprint matrix; used for both models
